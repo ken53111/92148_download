@@ -3,13 +3,13 @@
 import mechanize
 import re
 import os
-import urllib
+import requests
 from bs4 import BeautifulSoup
 
 url_92148="https://www.google.com.tw/url?sa=t&rct=j&q=&esrc=s&source=web&cd=1&cad=rja&uact=8&ved=0ahUKEwjzpvbBr8jYAhUCXrwKHaHEC3QQFggmMAA&url=http%3A%2F%2Fwww.92148.com%2F2014%2F09%2F59_14.html&usg=AOvVaw3hbtlrPj3sm-lGDJk_HmHM"
 
-def generate_download_url(url_core) :
-    return "https://drive.google.com/uc?export=download&confirm=us-z&id=" + url_core
+def generate_download_url(file_id) :
+    return "https://drive.google.com/uc?export=download&id=" + file_id
 
 def get_driver_viewer_url(dom) :
     soup = BeautifulSoup(dom, 'html.parser')
@@ -41,21 +41,35 @@ def get_redirect_url(dom) :
         return regx_result[0]
     else :
         return ""
-
-def click_download_anyway(download_url) :
-    dom = get_web_page(download_url)
-    
-    soup = BeautifulSoup(dom, 'html.parser')
-    hyperlinks = soup.find_all('a')
-    
-    for h in hyperlinks :
-        if h.has_attr('class') :
-            if any("jfk-button-action" in s for s in h.attrs['class']) :
-                print "found"
-                return "https://drive.google.com" + h['href']
  
-#def save(download_url, directory) :    
-    
+def get_confirm_key_value(response) :    
+    for key, value in response.cookies.items() :
+        if key.startswith("download_warning") :
+            return value
+
+    return None
+
+def save_response_content(response, destination):
+    CHUNK_SIZE = 1024
+    with open(destination, "wb") as f:
+        for chunk in response.iter_content(CHUNK_SIZE):
+            if chunk:
+                f.write(chunk)
+
+def save(download_url, directory) :
+    print download_url
+
+    session = requests.Session()
+    response = session.get(download_url, params = {'id':id}, stream = True)
+
+    print response.content
+
+    confirm_key_value = get_confirm_key_value(response)
+
+    response = session.get(download_url, params = {'id': id, 'confirm': confirm_key_value}, stream = True)
+
+    save_response_content(response, directory)
+
 def main() :
     dom = get_web_page(url_92148)
         
@@ -66,9 +80,9 @@ def main() :
         
         print redirect_url
         
-        url_core = get_driver_viewer_url(dom)
-        warning_page_url = generate_download_url(url_core)
-        download_url = click_download_anyway(warning_page_url)
+        file_id = get_driver_viewer_url(dom)
+        download_url = generate_download_url(file_id)
+        save(download_url, "")
     else :
         print "Url not found"    
     
