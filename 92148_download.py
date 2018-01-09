@@ -3,10 +3,11 @@
 import mechanize
 import re
 import os
+import sys
 import requests
 from bs4 import BeautifulSoup
 
-url_92148="https://www.google.com.tw/url?sa=t&rct=j&q=&esrc=s&source=web&cd=1&cad=rja&uact=8&ved=0ahUKEwjzpvbBr8jYAhUCXrwKHaHEC3QQFggmMAA&url=http%3A%2F%2Fwww.92148.com%2F2014%2F09%2F59_14.html&usg=AOvVaw3hbtlrPj3sm-lGDJk_HmHM"
+list_url="http://www.92148.com/search/label/%E5%8B%95%E6%BC%AB%E7%8D%B5%E4%BA%BA%E7%B7%9A%E4%B8%8A%E7%9C%8B?&max-results=200"
 
 def generate_download_url(file_id) :
     return "https://drive.google.com/uc?export=download&id=" + file_id
@@ -16,12 +17,17 @@ def get_driver_viewer_url(dom) :
     
     iframe = soup.find('iframe')
     
-    tmp_url = iframe.attrs['src']
+    print iframe
     
-    regx = re.compile("https://docs.google.com/file/d/(.+)/preview")
-    regx_result = regx.findall(tmp_url)
-       
-    return regx_result[0]
+    if iframe != None :
+        tmp_url = iframe.attrs['src']
+    
+        regx = re.compile("https://docs.google.com/file/d/(.+)/preview")
+        regx_result = regx.findall(tmp_url)
+           
+        return regx_result[0]
+    else :
+        return ""
   
 
 def get_web_page(url) :
@@ -62,16 +68,22 @@ def save(download_url, directory) :
     session = requests.Session()
     response = session.get(download_url, params = {'id':id}, stream = True)
 
-    print response.content
-
     confirm_key_value = get_confirm_key_value(response)
 
     response = session.get(download_url, params = {'id': id, 'confirm': confirm_key_value}, stream = True)
+    
+    get_file_extension_format = "video/(.+)"
+    regx = re.compile(get_file_extension_format)
+    regx_result = regx.findall(response.headers['Content-Type'])
+    
+    if (regx_result != []) :
+        print regx_result[0]
+        save_response_content(response, directory + "." + regx_result[0])
+    else :
+        print "Unknown video type"
 
-    save_response_content(response, directory)
-
-def main() :
-    dom = get_web_page(url_92148)
+def download_from_web_page(episode_url, directory) :
+    dom = get_web_page(episode_url)
         
     redirect_url = get_redirect_url(dom)    
     if (redirect_url) != "" :
@@ -81,10 +93,40 @@ def main() :
         print redirect_url
         
         file_id = get_driver_viewer_url(dom)
-        download_url = generate_download_url(file_id)
-        save(download_url, "")
+        if file_id != "" :
+            download_url = generate_download_url(file_id)
+            save(download_url, directory)
     else :
-        print "Url not found"    
+        print "Url not found"
+
+def generate_file_name_from_url(url) :
+    get_html_name_format = "http://.+/(.+).html"
+    
+    regx = re.compile(get_html_name_format)
+    regx_result = regx.findall(url)
+    
+    if regx_result != [] :
+        return regx_result[0]
+    
+def batch_download(download_list) :
+    for download_task in download_list:
+        download_from_web_page(download_task['link'], download_task['directory'])
+        
+def download_video_from_list(list_url, directory, start_episode = 1, end_episode = 0, episode_count = 0) :
+    dom = get_web_page(list_url)
+    download_list = []
+    
+    soup = BeautifulSoup(dom, 'html.parser')
+    h3_list = soup.find_all('h3')
+    
+    for h3 in h3_list :
+        a = h3.find('a')
+        if a != None :
+            link = a['href']
+            file_name = generate_file_name_from_url(link)
+            download_list.append({'directory': os.path.join(directory, file_name), 'link': link})
+    
+    batch_download(download_list)
     
 if __name__ == "__main__" :
-    main()
+    download_video_from_list(list_url, "C:\\Users\\Ken\\Downloads\\hunter")
