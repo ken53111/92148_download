@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 import mechanize
 import re
@@ -7,7 +7,9 @@ import sys
 import requests
 from bs4 import BeautifulSoup
 
-list_url="http://www.92148.com/search/label/%E5%8B%95%E6%BC%AB%E7%8D%B5%E4%BA%BA%E7%B7%9A%E4%B8%8A%E7%9C%8B?&max-results=200"
+list_url="http://www.92148.com/search/label/%E5%8B%95%E6%BC%AB%E7%B7%A3%E4%B9%8B%E7%A9%BA"
+MAX_RESULT = 500
+CHUNK_SIZE = 32768
 
 def generate_download_url(file_id) :
     return "https://drive.google.com/uc?export=download&id=" + file_id
@@ -24,8 +26,11 @@ def get_driver_viewer_url(dom) :
     
         regx = re.compile("https://docs.google.com/file/d/(.+)/preview")
         regx_result = regx.findall(tmp_url)
-           
-        return regx_result[0]
+        
+        if regx_result != [] :   
+            return regx_result[0]
+        else :
+            return ""
     else :
         return ""
   
@@ -56,11 +61,12 @@ def get_confirm_key_value(response) :
     return None
 
 def save_response_content(response, destination):
-    CHUNK_SIZE = 1024
+    global CHUNK_SIZE
     with open(destination, "wb") as f:
         for chunk in response.iter_content(CHUNK_SIZE):
             if chunk:
                 f.write(chunk)
+    f.close()
 
 def save(download_url, directory) :
     print download_url
@@ -80,7 +86,7 @@ def save(download_url, directory) :
         print regx_result[0]
         save_response_content(response, directory + "." + regx_result[0])
     else :
-        print "Unknown video type"
+        print "Unknown video type " + response.headers['Content-Type']
 
 def download_from_web_page(episode_url, directory) :
     dom = get_web_page(episode_url)
@@ -100,7 +106,7 @@ def download_from_web_page(episode_url, directory) :
         print "Url not found"
 
 def generate_file_name_from_url(url) :
-    get_html_name_format = "http://.+/(.+).html"
+    get_html_name_format = "http://.+/(.+)\.html"
     
     regx = re.compile(get_html_name_format)
     regx_result = regx.findall(url)
@@ -108,13 +114,29 @@ def generate_file_name_from_url(url) :
     if regx_result != [] :
         return regx_result[0]
     
-def batch_download(download_list) :
+def batch_download(download_list, start_episode, end_episode) :
     for download_task in download_list:
-        download_from_web_page(download_task['link'], download_task['directory'])
+        if (download_task['episode'] >= start_episode) :
+            if  (end_episode == 0) or (download_task['episode'] <= end_episode) :
+                print "Downloading episode: " + str(download_task['episode'])
+                download_from_web_page(download_task['link'], download_task['directory'])
+    print "done"
+    
+def get_episode_from_name(file_name) :
+    episode_format = "(\d+).*"
+    
+    regx = re.compile(episode_format)
+    regx_result = regx.findall(file_name)
+    
+    if regx_result != [] :
+        return int(regx_result[0])
         
-def download_video_from_list(list_url, directory, start_episode = 1, end_episode = 0, episode_count = 0) :
+def download_video_from_list(list_url, directory, start_episode = 1, end_episode = 0, count = 0) :
     dom = get_web_page(list_url)
     download_list = []
+    
+    if count != 0 :
+        end_episode = start_episode + count - 1
     
     soup = BeautifulSoup(dom, 'html.parser')
     h3_list = soup.find_all('h3')
@@ -124,9 +146,25 @@ def download_video_from_list(list_url, directory, start_episode = 1, end_episode
         if a != None :
             link = a['href']
             file_name = generate_file_name_from_url(link)
-            download_list.append({'directory': os.path.join(directory, file_name), 'link': link})
+            episode = get_episode_from_name(file_name)
+            download_list.append({'episode': episode, 'directory': os.path.join(directory, file_name), 'link': link})
     
-    batch_download(download_list)
+    batch_download(download_list, start_episode, end_episode)
+    
+def append_max_result(url) :
+    global MAX_RESULT
+    regx = re.compile("[&]*max-results=[\d]+")
+    regx_result = regx.findall(url)
+    
+    if regx_result != [] :
+        url = url.replace(regx_result[0], "")
+    
+    if url[-1] != '?' :
+        url += '?'
+    
+    return url + "&max-results=" + str(MAX_RESULT)
     
 if __name__ == "__main__" :
-    download_video_from_list(list_url, "C:\\Users\\Ken\\Downloads\\hunter")
+    url = append_max_result(list_url)
+    print url
+    download_video_from_list(url, "I:\\videos\\tmp")
